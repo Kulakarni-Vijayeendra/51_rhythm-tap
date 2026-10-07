@@ -1,7 +1,15 @@
 import pygame
 import random
 import math
-from game.beat import Note, LANES, LANE_KEYS, LANE_LABELS, LANE_COLORS
+
+from game.beat import (
+    Note,
+    LANES,
+    LANE_KEYS,
+    LANE_LABELS,
+    LANE_COLORS
+)
+
 
 WIDTH, HEIGHT = 480, 640
 FPS = 60
@@ -15,12 +23,24 @@ class GameEngine:
     def __init__(self):
         pygame.init()
         pygame.mixer.init()
+
         self.create_sounds()
+
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Rhythm Tap")
+
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("monospace", 26, bold=True)
-        self.big_font = pygame.font.SysFont("monospace", 44, bold=True)
+        self.font = pygame.font.SysFont(
+            "monospace",
+            26,
+            bold=True
+        )
+        self.big_font = pygame.font.SysFont(
+            "monospace",
+            44,
+            bold=True
+        )
+
         self.reset()
 
     def reset(self):
@@ -29,11 +49,13 @@ class GameEngine:
         self.combo = 0
         self.max_combo = 0
         self.misses = 0
+
         self.spawn_timer = 0
         self.spawn_interval = 45
         self.speed = 5
         self.frame = 0
-        self.feedback = []  # (text, color, ttl, x, y)
+
+        self.feedback = []
         self.game_over = False
 
     def create_sounds(self):
@@ -50,83 +72,162 @@ class GameEngine:
                     32767
                     * volume
                     * math.sin(
-                        2 * math.pi * frequency * i / sample_rate
+                        2
+                        * math.pi
+                        * frequency
+                        * i
+                        / sample_rate
                     )
                 )
+
                 buffer += int(value).to_bytes(
                     2,
                     byteorder="little",
                     signed=True
                 )
 
-            return pygame.mixer.Sound(buffer=bytes(buffer))
+            return pygame.mixer.Sound(
+                buffer=bytes(buffer)
+            )
 
-        self.sounds["PERFECT"] = make_tone(880, 0.12, 0.35)
-        self.sounds["GREAT"] = make_tone(660, 0.12, 0.30)
-        self.sounds["OK"] = make_tone(440, 0.12, 0.25)
+        self.sounds["PERFECT"] = make_tone(
+            880,
+            0.12,
+            0.35
+        )
+
+        self.sounds["GREAT"] = make_tone(
+            660,
+            0.12,
+            0.30
+        )
+
+        self.sounds["OK"] = make_tone(
+            440,
+            0.12,
+            0.25
+        )
 
     def spawn_note(self):
         lane = random.randint(0, LANES - 1)
-        self.notes.append(Note(lane, y=-30, speed=self.speed))
+
+        # Approximately 25% of notes are hold notes.
+        is_hold = random.random() < 0.25
+
+        self.notes.append(
+            Note(
+                lane,
+                y=-30,
+                speed=self.speed,
+                is_hold=is_hold
+            )
+        )
 
     def handle_events(self):
         for event in pygame.event.get():
+
             if event.type == pygame.QUIT:
                 return False
 
             if event.type == pygame.KEYDOWN:
+
                 if event.key == pygame.K_r:
                     self.reset()
+
                 elif not self.game_over:
+
                     for i, key in enumerate(LANE_KEYS):
+
                         if event.key == key:
                             self.process_tap(i)
 
         return True
 
     def process_tap(self, lane):
-        # Find closest note in this lane near hit zone
+        # Find the closest available note in this lane.
         best = None
         best_dist = 9999
 
         for note in self.notes:
-            if note.lane == lane and not note.hit and not note.missed:
-                dist = abs(note.y + Note.HEIGHT // 2 - HIT_Y)
+
+            if (
+                note.lane == lane
+                and not note.hit
+                and not note.missed
+                and not note.holding
+            ):
+                dist = abs(
+                    note.y
+                    + Note.HEIGHT // 2
+                    - HIT_Y
+                )
 
                 if dist < best_dist:
                     best_dist = dist
                     best = note
 
-        lane_x = lane * LANE_W + LANE_W // 2
+        lane_x = (
+            lane * LANE_W
+            + LANE_W // 2
+        )
 
         if best and best_dist <= HIT_WINDOW:
+
+            # Hold note.
+            if best.is_hold:
+                best.start_hold()
+                return
+
+            # Normal note.
             best.hit = True
 
             if best_dist < 8:
                 grade, pts = "PERFECT", 300
                 col = (255, 220, 0)
+
             elif best_dist < 18:
                 grade, pts = "GREAT", 200
                 col = (100, 220, 100)
+
             else:
                 grade, pts = "OK", 100
                 col = (180, 180, 255)
 
             self.combo += 1
-            self.max_combo = max(self.max_combo, self.combo)
-            self.score += pts * max(1, self.combo // 5)
 
-            # Play sound corresponding to the hit grade
+            self.max_combo = max(
+                self.max_combo,
+                self.combo
+            )
+
+            self.score += (
+                pts
+                * max(1, self.combo // 5)
+            )
+
             self.sounds[grade].play()
 
             self.feedback.append(
-                [grade, col, 40, lane_x, HIT_Y - 30]
+                [
+                    grade,
+                    col,
+                    40,
+                    lane_x,
+                    HIT_Y - 30
+                ]
             )
 
         else:
             self.combo = 0
+
             self.feedback.append(
-                ["MISS", (220, 60, 60), 40, lane_x, HIT_Y - 30]
+                [
+                    "MISS",
+                    (220, 60, 60),
+                    40,
+                    lane_x,
+                    HIT_Y - 30
+                ]
             )
 
     def update(self):
@@ -136,48 +237,145 @@ class GameEngine:
         self.frame += 1
         self.spawn_timer += 1
 
+        # Spawn notes.
         if self.spawn_timer >= self.spawn_interval:
+
             self.spawn_note()
+
             self.spawn_timer = 0
 
             if self.frame % 600 == 0:
-                self.speed = min(10, self.speed + 0.5)
+                self.speed = min(
+                    10,
+                    self.speed + 0.5
+                )
+
                 self.spawn_interval = max(
                     25,
                     self.spawn_interval - 2
                 )
 
+        # Update notes.
         for note in self.notes:
+
             note.update()
 
+            # Handle an active hold note.
+            if note.holding:
+
+                key = LANE_KEYS[note.lane]
+                keys = pygame.key.get_pressed()
+
+                # Player released the key too early.
+                if not keys[key]:
+
+                    note.cancel_hold()
+                    note.missed = True
+
+                    self.misses += 1
+                    self.combo = 0
+
+                    lane_x = (
+                        note.lane * LANE_W
+                        + LANE_W // 2
+                    )
+
+                    self.feedback.append(
+                        [
+                            "MISS",
+                            (220, 60, 60),
+                            40,
+                            lane_x,
+                            HIT_Y - 30
+                        ]
+                    )
+
+                # Hold completed successfully.
+                elif note.update_hold():
+
+                    note.hit = True
+
+                    self.combo += 1
+
+                    self.max_combo = max(
+                        self.max_combo,
+                        self.combo
+                    )
+
+                    self.score += (
+                        300
+                        * max(1, self.combo // 5)
+                    )
+
+                    self.sounds["PERFECT"].play()
+
+                    lane_x = (
+                        note.lane * LANE_W
+                        + LANE_W // 2
+                    )
+
+                    self.feedback.append(
+                        [
+                            "PERFECT",
+                            (255, 220, 0),
+                            40,
+                            lane_x,
+                            HIT_Y - 30
+                        ]
+                    )
+
+            # Normal note / unstarted hold note missed.
             if (
                 not note.hit
                 and not note.missed
-                and note.y > HIT_Y + HIT_WINDOW + Note.HEIGHT
+                and not note.holding
+                and note.y
+                > HIT_Y
+                + HIT_WINDOW
+                + Note.HEIGHT
             ):
+
                 note.missed = True
+
                 self.misses += 1
                 self.combo = 0
 
+        # Remove completed or missed notes after they leave the screen.
         self.notes = [
-            n for n in self.notes
-            if not (n.hit or n.missed and n.y > HEIGHT + 10)
+            n
+            for n in self.notes
+            if not (
+                n.hit
+                or (
+                    n.missed
+                    and n.y > HEIGHT + 10
+                )
+            )
         ]
 
+        # Update feedback text.
         self.feedback = [
-            [t, c, ttl - 1, x, y]
+            [
+                t,
+                c,
+                ttl - 1,
+                x,
+                y
+            ]
             for t, c, ttl, x, y in self.feedback
             if ttl > 1
         ]
 
+        # Game over after 15 misses.
         if self.misses >= 15:
             self.game_over = True
 
     def draw(self):
         self.screen.fill(BG)
 
-        # Lane dividers
+        # Lane dividers.
         for i in range(LANES + 1):
+
             pygame.draw.line(
                 self.screen,
                 (40, 40, 60),
@@ -186,7 +384,7 @@ class GameEngine:
                 1
             )
 
-        # Hit line
+        # Hit line.
         pygame.draw.line(
             self.screen,
             (80, 80, 100),
@@ -195,8 +393,13 @@ class GameEngine:
             2
         )
 
+        # Lane labels.
         for i in range(LANES):
-            lx = i * LANE_W + LANE_W // 2
+
+            lx = (
+                i * LANE_W
+                + LANE_W // 2
+            )
 
             pygame.draw.rect(
                 self.screen,
@@ -218,15 +421,61 @@ class GameEngine:
 
             self.screen.blit(
                 lbl,
-                (lx - lbl.get_width() // 2, HIT_Y - 10)
+                (
+                    lx - lbl.get_width() // 2,
+                    HIT_Y - 10
+                )
             )
 
-        # Notes
+        # Draw notes.
         for note in self.notes:
+
             if note.hit:
                 continue
 
-            lx = note.lane * LANE_W + LANE_W // 2
+            lx = (
+                note.lane * LANE_W
+                + LANE_W // 2
+            )
+
+            # Draw hold-note tail.
+            if note.is_hold:
+
+                tail_rect = note.get_hold_rect(lx)
+
+                pygame.draw.rect(
+                    self.screen,
+                    LANE_COLORS[note.lane],
+                    tail_rect,
+                    border_radius=5
+                )
+
+                # Draw progress over the hold tail.
+                if note.holding:
+
+                    progress_height = int(
+                        tail_rect.height
+                        * note.hold_progress
+                    )
+
+                    if progress_height > 0:
+
+                        progress_rect = pygame.Rect(
+                            tail_rect.x,
+                            tail_rect.bottom
+                            - progress_height,
+                            tail_rect.width,
+                            progress_height
+                        )
+
+                        pygame.draw.rect(
+                            self.screen,
+                            (255, 255, 255),
+                            progress_rect,
+                            border_radius=5
+                        )
+
+            # Draw note head.
             rect = note.get_rect(lx)
 
             pygame.draw.rect(
@@ -236,18 +485,31 @@ class GameEngine:
                 border_radius=5
             )
 
-        # Feedback
+        # Feedback.
         for text, color, ttl, x, y in self.feedback:
-            surf = self.font.render(text, True, color)
-            alpha = min(255, ttl * 7)
+
+            surf = self.font.render(
+                text,
+                True,
+                color
+            )
+
+            alpha = min(
+                255,
+                ttl * 7
+            )
+
             surf.set_alpha(alpha)
 
             self.screen.blit(
                 surf,
-                (x - surf.get_width() // 2, y)
+                (
+                    x - surf.get_width() // 2,
+                    y
+                )
             )
 
-        # HUD
+        # HUD.
         sc = self.font.render(
             f"Score: {self.score}",
             True,
@@ -266,18 +528,37 @@ class GameEngine:
             (220, 100, 100)
         )
 
-        self.screen.blit(sc, (10, 10))
-        self.screen.blit(co, (10, 40))
-        self.screen.blit(mi, (WIDTH - 170, 10))
+        self.screen.blit(
+            sc,
+            (10, 10)
+        )
 
+        self.screen.blit(
+            co,
+            (10, 40)
+        )
+
+        self.screen.blit(
+            mi,
+            (WIDTH - 170, 10)
+        )
+
+        # Game over screen.
         if self.game_over:
+
             ov = pygame.Surface(
                 (WIDTH, HEIGHT),
                 pygame.SRCALPHA
             )
 
-            ov.fill((0, 0, 0, 160))
-            self.screen.blit(ov, (0, 0))
+            ov.fill(
+                (0, 0, 0, 160)
+            )
+
+            self.screen.blit(
+                ov,
+                (0, 0)
+            )
 
             msg = self.big_font.render(
                 "GAME OVER",
@@ -301,7 +582,8 @@ class GameEngine:
             self.screen.blit(
                 msg,
                 (
-                    WIDTH // 2 - msg.get_width() // 2,
+                    WIDTH // 2
+                    - msg.get_width() // 2,
                     HEIGHT // 2 - 70
                 )
             )
@@ -309,7 +591,8 @@ class GameEngine:
             self.screen.blit(
                 sc_msg,
                 (
-                    WIDTH // 2 - sc_msg.get_width() // 2,
+                    WIDTH // 2
+                    - sc_msg.get_width() // 2,
                     HEIGHT // 2
                 )
             )
@@ -317,7 +600,8 @@ class GameEngine:
             self.screen.blit(
                 restart,
                 (
-                    WIDTH // 2 - restart.get_width() // 2,
+                    WIDTH // 2
+                    - restart.get_width() // 2,
                     HEIGHT // 2 + 50
                 )
             )
@@ -328,9 +612,11 @@ class GameEngine:
         running = True
 
         while running:
+
             running = self.handle_events()
             self.update()
             self.draw()
+
             self.clock.tick(FPS)
 
         pygame.quit()
